@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"golang.org/x/crypto/ssh"
 )
 
 const (
@@ -18,6 +23,12 @@ const (
 	maxMessageSize = 512
 )
 
+var (
+	username = "ddd"
+	password = "06092002"
+	hostname = "127.0.0.1"
+	port     = "3000"
+)
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -29,14 +40,7 @@ type Client struct {
 	send chan []byte
 }
 
-func reverse(arr []byte) []byte {
-	if len(arr) == 0 {
-		return arr
-	}
-	return append(reverse(arr[1:]), arr[0])
-}
-
-func (c *Client) readPump() {
+func (c *Client) readPump(sess *ssh.Session, stdin *io.WriteCloser) {
 	defer func() {
 		c.conn.Close()
 	}()
@@ -51,8 +55,28 @@ func (c *Client) readPump() {
 			}
 			break
 		}
-		message = reverse(message)
-		c.send <- message
+		old := os.Stdout
+		oldE := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		os.Stderr = w
+		sess.Stdout = os.Stdout
+		sess.Stderr = os.Stderr
+		_, err = fmt.Fprintf(*stdin, "%s\n", message)
+		if err != nil {
+			log.Printf("error: %v", err)
+		}
+		outC := make(chan string)
+		go func() {
+			var buf bytes.Buffer
+			io.Copy(&buf, r)
+			outC <- buf.String()
+		}()
+		w.Close()
+		os.Stdout = old
+		os.Stderr = oldE
+		out := <-outC
+		c.send <- []byte(out)
 	}
 }
 
@@ -94,7 +118,6 @@ func (c *Client) writePump() {
 	}
 }
 
-// serveWs handles websocket requests from the peer.
 func serveWs(w http.ResponseWriter, r *http.Request) {
 	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -103,9 +126,33 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := &Client{conn: conn, send: make(chan []byte, 256)}
-
+	config := &ssh.ClientConfig{
+		User: username,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(password),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+	sshClient, err := ssh.Dial("tcp", hostname+":"+port, config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sshClient.Close()
+	sess, err := sshClient.NewSession()
+	if err != nil {
+		log.Fatal("Failed to create session: ", err)
+	}
+	defer sess.Close()
+	stdin, err := sess.StdinPipe()
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = sess.Shell()
+	if err != nil {
+		log.Printf("error: %v", err)
+	}
 	go client.writePump()
-	go client.readPump()
+	go client.readPump(sess, &stdin)
 }
 
 func main() {

@@ -127,6 +127,7 @@ func handle(chans <-chan ssh.NewChannel) {
 				channel.Read(a)
 				cmd := string(a)
 				i := strings.Index(cmd, "\n")
+				fmt.Println(cmd)
 				cmd = cmd[:i]
 				if cmd == "exit" {
 					channel.Close()

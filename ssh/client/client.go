@@ -39,25 +39,21 @@ func main() {
 	}
 	defer sess.Close()
 
-	// StdinPipe for commands
 	stdin, err := sess.StdinPipe()
 	if err != nil {
 		log.Fatal(err)
 	}
 	if len(os.Args) == 1 {
-		// Enable system stdout
 		sess.Stdout = os.Stdout
 		sess.Stderr = os.Stderr
 
-		// Start remote shell
 		err = sess.Shell()
 		if err != nil {
 			log.Fatal(err)
 		}
 
 		for {
-			var cmd string
-			cmd = input.Gets()
+			cmd := input.Gets()
 			_, err = fmt.Fprintf(stdin, "%s\n", cmd)
 			if err != nil {
 				log.Fatal(err)
@@ -68,8 +64,7 @@ func main() {
 			}
 		}
 	} else {
-		// setup standard out and error
-		// uses writer interface
+
 		sess.Stdout = os.Stdout
 		sess.Stderr = os.Stderr
 		cmd := ""
@@ -79,7 +74,6 @@ func main() {
 				cmd += " "
 			}
 		}
-		// run single command
 		err = sess.Run(cmd)
 		if err != nil {
 			fmt.Println("hi")
