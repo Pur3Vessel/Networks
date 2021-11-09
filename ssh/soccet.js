@@ -1,5 +1,5 @@
 window.addEventListener("load", function(){
-    //this.alert("load")
+    this.alert("load")
     var form2 = document.getElementById("form2")
     connectBut = this.document.getElementById("connect")
     connectBut.addEventListener("click", function() {
@@ -31,8 +31,8 @@ window.addEventListener("load", function(){
           let command = document.getElementById("command")
           command.value = ""
           form2.addEventListener("submit", function(event){
-          event.preventDefault();
-          socket.send(command.value)
+            event.preventDefault();
+            socket.send(command.value)
           })
     })
 })  

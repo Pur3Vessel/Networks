@@ -85,6 +85,7 @@ func handle(chans <-chan ssh.NewChannel) {
 		nRequests := make(chan *ssh.Request, 15)
 		var com string
 		for req := range requests {
+			fmt.Println(req.Type)
 			if req.Type == "exec" {
 				ex = true
 				com = string(req.Payload)

@@ -3,10 +3,8 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -40,7 +38,7 @@ type Client struct {
 	send chan []byte
 }
 
-func (c *Client) readPump(sess *ssh.Session, stdin *io.WriteCloser) {
+func (c *Client) readPump() {
 	defer func() {
 		c.conn.Close()
 	}()
@@ -55,28 +53,43 @@ func (c *Client) readPump(sess *ssh.Session, stdin *io.WriteCloser) {
 			}
 			break
 		}
-		old := os.Stdout
-		oldE := os.Stderr
-		r, w, _ := os.Pipe()
-		os.Stdout = w
-		os.Stderr = w
-		sess.Stdout = os.Stdout
-		sess.Stderr = os.Stderr
-		_, err = fmt.Fprintf(*stdin, "%s\n", message)
-		if err != nil {
-			log.Printf("error: %v", err)
+		config := &ssh.ClientConfig{
+			User: username,
+			Auth: []ssh.AuthMethod{
+				ssh.Password(password),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
-		outC := make(chan string)
-		go func() {
-			var buf bytes.Buffer
-			io.Copy(&buf, r)
-			outC <- buf.String()
-		}()
-		w.Close()
-		os.Stdout = old
-		os.Stderr = oldE
-		out := <-outC
-		c.send <- []byte(out)
+		sshClient, err := ssh.Dial("tcp", hostname+":"+port, config)
+		if err != nil {
+			log.Printf("error3: %v", err)
+		}
+		defer sshClient.Close()
+		sess, err := sshClient.NewSession()
+		if err != nil {
+			log.Printf("error4: %v", err)
+		}
+		defer sess.Close()
+		var b bytes.Buffer
+		var be bytes.Buffer
+		sess.Stdout = &b
+		sess.Stderr = &b
+		err = sess.Run(string(message))
+		if err != nil {
+			log.Printf("error1: %v", err)
+		}
+		if err != nil {
+			log.Printf("error2: %v", err)
+		}
+		bb := b.Bytes()
+		bbe := be.Bytes()
+		sshClient.Close()
+		sess.Close()
+		fmt.Print("bb: ")
+		fmt.Println(bb)
+		fmt.Print("bbe: ")
+		fmt.Println(bbe)
+		c.send <- bb
 	}
 }
 
@@ -126,33 +139,8 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := &Client{conn: conn, send: make(chan []byte, 256)}
-	config := &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-	sshClient, err := ssh.Dial("tcp", hostname+":"+port, config)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sshClient.Close()
-	sess, err := sshClient.NewSession()
-	if err != nil {
-		log.Fatal("Failed to create session: ", err)
-	}
-	defer sess.Close()
-	stdin, err := sess.StdinPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = sess.Shell()
-	if err != nil {
-		log.Printf("error: %v", err)
-	}
 	go client.writePump()
-	go client.readPump(sess, &stdin)
+	go client.readPump()
 }
 
 func main() {
