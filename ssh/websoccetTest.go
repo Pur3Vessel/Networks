@@ -71,9 +71,7 @@ func (c *Client) readPump() {
 		}
 		defer sess.Close()
 		var b bytes.Buffer
-		var be bytes.Buffer
 		sess.Stdout = &b
-		sess.Stderr = &b
 		err = sess.Run(string(message))
 		if err != nil {
 			log.Printf("error1: %v", err)
@@ -82,13 +80,9 @@ func (c *Client) readPump() {
 			log.Printf("error2: %v", err)
 		}
 		bb := b.Bytes()
-		bbe := be.Bytes()
 		sshClient.Close()
 		sess.Close()
-		fmt.Print("bb: ")
 		fmt.Println(bb)
-		fmt.Print("bbe: ")
-		fmt.Println(bbe)
 		c.send <- bb
 	}
 }

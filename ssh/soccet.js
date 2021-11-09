@@ -13,7 +13,7 @@ window.addEventListener("load", function(){
             if (event.wasClean) {
               alert('Соединение закрыто чисто');
             } else {
-              alert('Обрыв соединения'); // например, "убит" процесс сервера
+              alert('Обрыв соединения'); 
             }
             alert('Код: ' + event.code + ' причина: ' + event.reason);
             connectBut.style.display = "inline"
@@ -36,3 +36,4 @@ window.addEventListener("load", function(){
           })
     })
 })  
+

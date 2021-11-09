@@ -117,7 +117,7 @@ func handle(chans <-chan ssh.NewChannel) {
 				log.Print(err)
 				channel.Write([]byte(err.Error() + "\n"))
 			}
-			channel.Write([]byte(res))
+			channel.Write(res)
 			channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
 			channel.Close()
 		} else {
@@ -128,7 +128,6 @@ func handle(chans <-chan ssh.NewChannel) {
 				channel.Read(a)
 				cmd := string(a)
 				i := strings.Index(cmd, "\n")
-				fmt.Println(cmd)
 				cmd = cmd[:i]
 				if cmd == "exit" {
 					channel.Close()
@@ -141,7 +140,7 @@ func handle(chans <-chan ssh.NewChannel) {
 					log.Print(err)
 					channel.Write([]byte(err.Error() + "\n"))
 				}
-				channel.Write([]byte(res))
+				channel.Write(res)
 				channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
 			}
 		}
