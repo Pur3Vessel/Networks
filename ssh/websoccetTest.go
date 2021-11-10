@@ -21,12 +21,6 @@ const (
 	maxMessageSize = 512
 )
 
-var (
-	username = "ddd"
-	password = "06092002"
-	hostname = "127.0.0.1"
-	port     = "3000"
-)
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -39,6 +33,11 @@ type Client struct {
 }
 
 func (c *Client) readPump() {
+	username := ""
+	password := ""
+	hostname := "127.0.0.1"
+	port := "3000"
+	auth := 0
 	defer func() {
 		c.conn.Close()
 	}()
@@ -53,6 +52,15 @@ func (c *Client) readPump() {
 			}
 			break
 		}
+		if auth == 0 {
+			username = string(message)
+			auth++
+			continue
+		}
+		if auth == 1 {
+			password = string(message)
+			auth++
+		}
 		config := &ssh.ClientConfig{
 			User: username,
 			Auth: []ssh.AuthMethod{
@@ -63,8 +71,16 @@ func (c *Client) readPump() {
 		sshClient, err := ssh.Dial("tcp", hostname+":"+port, config)
 		if err != nil {
 			log.Printf("error3: %v", err)
+			auth = 0
+			c.send <- []byte("wrong_reg")
+			continue
 		}
 		defer sshClient.Close()
+		if auth == 2 {
+			auth++
+			sshClient.Close()
+			continue
+		}
 		sess, err := sshClient.NewSession()
 		if err != nil {
 			log.Printf("error4: %v", err)

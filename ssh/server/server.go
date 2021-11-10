@@ -65,6 +65,7 @@ func listen(config *ssh.ServerConfig) {
 		sConn, chans, _, err := ssh.NewServerConn(conn, config)
 		if err != nil {
 			log.Print(err)
+			continue
 		}
 		fmt.Printf("Connection from %s (%s)\n", sConn.RemoteAddr(), sConn.ClientVersion())
 		handle(chans)
