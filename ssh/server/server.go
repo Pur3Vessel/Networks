@@ -113,6 +113,17 @@ func handle(chans <-chan ssh.NewChannel) {
 				}
 			}
 			splitted[0] = string(bsp)
+			if splitted[0] == "cd" {
+				if len(splitted) != 2 {
+					channel.Write([]byte("exit-status 1"))
+					channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
+					channel.Close()
+				}
+				os.Chdir(splitted[1])
+				channel.Write([]byte(""))
+				channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
+				channel.Close()
+			}
 			res, err := exec.Command(splitted[0], splitted[1:]...).Output()
 			if err != nil {
 				log.Print(err)

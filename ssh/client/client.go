@@ -1,84 +1,162 @@
 package main
 
 import (
-	"fmt"
+	"bytes"
 	"log"
-	"os"
+	"net/http"
+	"time"
 
-	"github.com/skorobogatov/input"
+	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/ssh"
 )
 
-func main() {
+const (
+	writeWait = 10 * time.Second
 
-	username := "ddd"
-	password := "06092002"
+	pongWait = 60 * time.Second
+
+	pingPeriod = (pongWait * 9) / 10
+
+	maxMessageSize = 512
+)
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
+
+type Client struct {
+	conn *websocket.Conn
+
+	send chan []byte
+}
+
+func (c *Client) readPump() {
+	username := ""
+	password := ""
 	hostname := "127.0.0.1"
 	port := "3000"
-
-	// SSH client config
-	config := &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
-		// Non-production only
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-	// Connect to host
-	client, err := ssh.Dial("tcp", hostname+":"+port, config)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer client.Close()
-
-	// Create sesssion
-	sess, err := client.NewSession()
-	if err != nil {
-		log.Fatal("Failed to create session: ", err)
-	}
-	defer sess.Close()
-
-	stdin, err := sess.StdinPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-	if len(os.Args) == 1 {
-		sess.Stdout = os.Stdout
-		sess.Stderr = os.Stderr
-
-		err = sess.Shell()
+	auth := 0
+	defer func() {
+		c.conn.Close()
+	}()
+	c.conn.SetReadLimit(maxMessageSize)
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	for {
+		_, message, err := c.conn.ReadMessage()
 		if err != nil {
-			log.Fatal(err)
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("error: %v", err)
+			}
+			break
 		}
+		if auth == 0 {
+			username = string(message)
+			auth++
+			continue
+		}
+		if auth == 1 {
+			password = string(message)
+			auth++
+		}
+		config := &ssh.ClientConfig{
+			User: username,
+			Auth: []ssh.AuthMethod{
+				ssh.Password(password),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		}
+		sshClient, err := ssh.Dial("tcp", hostname+":"+port, config)
+		if err != nil {
+			log.Printf("error3: %v", err)
+			auth = 0
+			c.send <- []byte("wrong_reg")
+			continue
+		}
+		defer sshClient.Close()
+		if auth == 2 {
+			auth++
+			sshClient.Close()
+			continue
+		}
+		sess, err := sshClient.NewSession()
+		if err != nil {
+			log.Printf("error4: %v", err)
+		}
+		defer sess.Close()
+		var b bytes.Buffer
+		sess.Stdout = &b
+		err = sess.Run(string(message))
+		if err != nil {
+			log.Printf("error1: %v", err)
+		}
+		if err != nil {
+			log.Printf("error2: %v", err)
+		}
+		bb := b.Bytes()
+		sshClient.Close()
+		sess.Close()
+		c.send <- bb
+	}
+}
 
-		for {
-			cmd := input.Gets()
-			_, err = fmt.Fprintf(stdin, "%s\n", cmd)
+func (c *Client) writePump() {
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+	for {
+		select {
+		case message, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+
+			w, err := c.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
-				log.Fatal(err)
+				return
 			}
-			if cmd == "exit" {
-				sess.Close()
-				break
-			}
-		}
-	} else {
+			w.Write(message)
 
-		sess.Stdout = os.Stdout
-		sess.Stderr = os.Stderr
-		cmd := ""
-		for i := 1; i < len(os.Args); i++ {
-			cmd += os.Args[i]
-			if i != len(os.Args)-1 {
-				cmd += " "
+			n := len(c.send)
+			for i := 0; i < n; i++ {
+				w.Write(<-c.send)
 			}
-		}
-		err = sess.Run(cmd)
-		if err != nil {
-			fmt.Println("hi")
-			log.Fatal(err)
+
+			if err := w.Close(); err != nil {
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
+}
 
+func serveWs(w http.ResponseWriter, r *http.Request) {
+	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	client := &Client{conn: conn, send: make(chan []byte, 256)}
+	go client.writePump()
+	go client.readPump()
+}
+
+func main() {
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		serveWs(w, r)
+	})
+	err := http.ListenAndServe("127.0.0.1:6060", nil)
+	if err != nil {
+		log.Fatal("ListenAndServe: ", err)
+	}
 }

@@ -31,12 +31,12 @@ window.addEventListener("load", function(){
           
           socket.onmessage = function(event) {
             if (event.data == "wrong_reg") {
-              document.getElementById("form-container2").style.display = "none"
               alert("wrong_reg")
               socket.close()
+            } else {
+              let answer = document.getElementById("answer")
+              answer.innerHTML = event.data
             }
-            let answer = document.getElementById("answer")
-            answer.innerHTML = event.data
           };
           
           socket.onerror = function(error) {
